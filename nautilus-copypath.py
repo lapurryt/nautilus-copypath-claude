@@ -5,19 +5,23 @@
 # Distributed under the GPL-v3+ license. See LICENSE for more information
 # ----------------------------------------------------------------------------------------
 
-from gi.repository import Nautilus, GObject, Gdk, Gtk, Gio
 import os
 from platform import system
 
 import gi
 
-# Import the correct GI version
+# Select GI versions BEFORE importing from gi.repository — otherwise
+# require_versions() runs too late to influence which typelib is loaded,
+# and on distros where the default resolution differs it would raise at
+# import time (e.g. PyGObject >= 3.40 paired with Nautilus 3.x).
 gi_version_major = 3 if 30 <= gi.version_info[1] < 40 else 4
 gi.require_versions({
     'Nautilus': '3.0' if gi_version_major == 3 else '4.0',
     'Gdk': '3.0' if gi_version_major == 3 else '4.0',
     'Gtk': '3.0' if gi_version_major == 3 else '4.0'
 })
+
+from gi.repository import Nautilus, GObject, Gdk, Gtk, Gio
 
 
 class CopyPathExtensionSettings:
@@ -136,7 +140,9 @@ class CopyPathExtension(GObject.GObject, Nautilus.MenuProvider):
             paths = [self.__sanitize_path(path) for path in paths]
 
         if self.config.quote_paths:
-            paths = ["'{}'".format(path) for path in paths]
+            # POSIX-escape any embedded single quote so a name like don't.png
+            # doesn't produce a broken quoted string ('...'\''...').
+            paths = ["'{}'".format(path.replace("'", "'\\''")) for path in paths]
 
         return paths
 
@@ -216,7 +222,9 @@ class CopyPathExtension(GObject.GObject, Nautilus.MenuProvider):
     def __tildify(self, path):
         """Заменяет домашний каталог на ~, чтобы путь перестал быть АБСОЛЮТНЫМ.
         Claude Code авто-прикрепляет абсолютные пути к картинкам при вставке;
-        ~-путь не абсолютный -> остаётся текстом (а ~ понимают и шелл, и Claude)."""
+        ~-путь не абсолютный -> остаётся текстом. Заметка: при quote_paths=True
+        путь одинарно закавычен, поэтому в ШЕЛЛЕ тильда не раскроется
+        (cd '~/x' не сработает) — это ок для вставки в Claude/Telegram."""
         home = os.path.expanduser('~')
         if path == home:
             return '~'
